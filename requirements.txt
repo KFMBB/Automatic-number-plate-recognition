@@ -1,12 +1,7 @@
-ultralytics
-pandas
+streamlit
 opencv-python-headless
 numpy
-scipy
+ultralytics
+sort
 easyocr
-filterpy
-tensorflow
-torch
-torchvision
-torchaudio
-streamlit
+Pillow
