@@ -6,3 +6,6 @@ scipy
 easyocr
 filterpy
 streamlit
+filterpy
+scikit-image
+lap
