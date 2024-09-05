@@ -18,7 +18,7 @@ mot_tracker = Sort()  # For future work we can try out bytetracker and good for 
 # 1- The first model will focus on detecting cars while the other will focus on detgt ecting license plates:
 model = YOLO('yolov8n.pt')  # Load the nano version of the yolo model.
 # 2- The second model will be used to detect the license plates.
-license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')
+license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt') # If you face issues try out this model: Plate_detector_Model/plate_dedector.pt
 
 # load video
 cap = cv2.VideoCapture('Test_Video/License_Plate_detection.mp4')
