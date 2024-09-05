@@ -1,6 +1,8 @@
 import streamlit as st
 import cv2
 import numpy as np
+import tempfile
+import shutil
 from ultralytics import YOLO
 from sort.sort import Sort
 from helper_util import assign_car, read_license_plate, write_csv
@@ -62,7 +64,6 @@ def process_frame(frame, frame_c):
                                                               'text_score': license_plate_text_score}}
     return frame, results
 
-
 # Streamlit App
 st.title("Automatic Number Plate Recognition (ANPR) System")
 st.write("Upload an image or video for license plate detection and recognition.")
@@ -71,39 +72,73 @@ uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "png",
 
 if uploaded_file is not None:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    uploaded_file.seek(0)  # Reset file pointer to the beginning
 
     if uploaded_file.type == "video/mp4":
+        # Save uploaded video to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_file:
+            temp_file.write(uploaded_file.read())
+            temp_file_path = temp_file.name
+
         # Video processing
-        st.video(uploaded_file)
+        st.write("Processing video, please wait...")
+        with st.spinner('Processing video...'):
+            cap = cv2.VideoCapture(temp_file_path)
+            frame_c = 0
+            results = {}
+            frames_annotated = []
+            frames_original = []
 
-        cap = cv2.VideoCapture(uploaded_file)
-        frame_c = 0
-        results = {}
-        isReadingFrames = True
+            while True:
+                frame_c += 1
+                isReadingFrames, frame = cap.read()
 
-        while isReadingFrames:
-            frame_c += 1
-            isReadingFrames, frame = cap.read()
+                if not isReadingFrames:
+                    break
 
-            if isReadingFrames:
-                frame, frame_results = process_frame(frame, frame_c)
+                # Process frame
+                processed_frame, frame_results = process_frame(frame, frame_c)
                 results.update(frame_results)
 
-                # Display the processed frame
+                # Convert frames to RGB for Streamlit
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                st.image(frame_rgb)
+                processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
 
-        cap.release()
-        write_csv(results, 'Results_video.csv')
+                # Append frames for final display
+                frames_original.append(frame_rgb)
+                frames_annotated.append(processed_frame_rgb)
+
+            cap.release()
+            shutil.rmtree(temp_file_path)  # Clean up temporary file
+
+            write_csv(results, 'Results_video.csv')
+
+            # Save annotated video
+            annotated_video_path = 'annotated_video.mp4'
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(annotated_video_path, fourcc, 20.0, (frames_annotated[0].shape[1], frames_annotated[0].shape[0]))
+
+            for frame in frames_annotated:
+                out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+
+            out.release()
+
+            # Display original and annotated videos
+            st.write("Original Video:")
+            st.video(uploaded_file)
+            st.write("Annotated Video:")
+            st.video(annotated_video_path)
 
     else:
         # Image processing
-        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        frame_c = 0
-        processed_frame, results = process_frame(image, frame_c)
+        st.write("Processing image, please wait...")
+        with st.spinner('Processing image...'):
+            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            frame_c = 0
+            processed_frame, results = process_frame(image, frame_c)
 
-        # Display the processed image
-        processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-        st.image(processed_frame_rgb)
+            # Display the processed image
+            processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+            st.image(processed_frame_rgb, caption='Processed Image')
 
-        write_csv(results, 'Results_image.csv')
+            write_csv(results, 'Results_image.csv')
