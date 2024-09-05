@@ -2,7 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 import tempfile
-import shutil
+import os  # Import os module
 from ultralytics import YOLO
 from sort.sort import Sort
 from helper_util import assign_car, read_license_plate, write_csv
@@ -30,7 +30,10 @@ def process_frame(frame, frame_c):
             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)  # Annotate vehicle
 
     # Track vehicles
-    track_ids = mot_tracker.update(np.asarray(vehicles_detected))
+    if vehicles_detected:
+        track_ids = mot_tracker.update(np.asarray(vehicles_detected))
+    else:
+        track_ids = np.array([])
 
     # License plate detection
     license_plates = license_plate_detector(frame)[0]
@@ -57,11 +60,15 @@ def process_frame(frame, frame_c):
 
             # Save results
             if license_plate_text:
-                results[frame_c][car_id] = {'car': {'bbox': [x1_v, y1_v, x2_v, y2_v]},
-                                            'license_plate': {'bbox': [x1_lp, y1_lp, x2_lp, y2_lp],
-                                                              'text': license_plate_text,
-                                                              'bbox_score': score_lp,
-                                                              'text_score': license_plate_text_score}}
+                results[frame_c][car_id] = {
+                    'car': {'bbox': [x1_v, y1_v, x2_v, y2_v]},
+                    'license_plate': {
+                        'bbox': [x1_lp, y1_lp, x2_lp, y2_lp],
+                        'text': license_plate_text,
+                        'bbox_score': score_lp,
+                        'text_score': license_plate_text_score
+                    }
+                }
     return frame, results
 
 # Streamlit App
@@ -71,7 +78,6 @@ st.write("Upload an image or video for license plate detection and recognition."
 uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "png", "mp4"])
 
 if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     uploaded_file.seek(0)  # Reset file pointer to the beginning
 
     if uploaded_file.type == "video/mp4":
@@ -87,7 +93,6 @@ if uploaded_file is not None:
             frame_c = 0
             results = {}
             frames_annotated = []
-            frames_original = []
 
             while True:
                 frame_c += 1
@@ -100,31 +105,34 @@ if uploaded_file is not None:
                 processed_frame, frame_results = process_frame(frame, frame_c)
                 results.update(frame_results)
 
-                # Convert frames to RGB for Streamlit
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-
                 # Append frames for final display
-                frames_original.append(frame_rgb)
+                processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
                 frames_annotated.append(processed_frame_rgb)
 
             cap.release()
+
+            # Clean up temporary file safely
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                st.error(f"Failed to delete the temporary file: {e}")
 
             write_csv(results, 'Results_video.csv')
 
             # Save annotated video
             annotated_video_path = 'annotated_video.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(annotated_video_path, fourcc, 20.0, (frames_annotated[0].shape[1], frames_annotated[0].shape[0]))
+            out = cv2.VideoWriter(
+                annotated_video_path, fourcc, 20.0,
+                (frames_annotated[0].shape[1], frames_annotated[0].shape[0])
+            )
 
             for frame in frames_annotated:
                 out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
             out.release()
 
-            # Display original and annotated videos
-            st.write("Original Video:")
-            st.video(temp_file_path)
+            # Display annotated video
             st.write("Annotated Video:")
             st.video(annotated_video_path)
 
@@ -132,6 +140,7 @@ if uploaded_file is not None:
         # Image processing
         st.write("Processing image, please wait...")
         with st.spinner('Processing image...'):
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
             image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             frame_c = 0
             processed_frame, results = process_frame(image, frame_c)
