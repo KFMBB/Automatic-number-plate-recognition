@@ -8,7 +8,6 @@ from sort.sort import Sort
 from helper_util import assign_car, read_license_plate, write_csv
 import easyocr
 from PIL import Image
-import os
 
 # Load models
 vehicle_model = YOLO('yolov8n.pt')  # YOLOv8 for vehicle detection
@@ -110,12 +109,6 @@ if uploaded_file is not None:
                 frames_annotated.append(processed_frame_rgb)
 
             cap.release()
-
-            # Clean up temporary file safely
-            try:
-                os.remove(temp_file_path)
-            except Exception as e:
-                st.error(f"Failed to delete the temporary file: {e}")
 
             write_csv(results, 'Results_video.csv')
 
