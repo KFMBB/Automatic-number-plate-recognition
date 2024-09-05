@@ -11,7 +11,7 @@ from PIL import Image
 
 # Load models
 vehicle_model = YOLO('yolov8n.pt')  # YOLOv8 for vehicle detection
-license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')  # License plate detection
+license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')  # License plate detection, If you face issues try out this model: Plate_detector_Model/plate_dedector.pt
 mot_tracker = Sort()  # SORT tracker for vehicle tracking
 ocr_reader = easyocr.Reader(['en'])  # EasyOCR for license plate recognition
 
