@@ -1,7 +1,9 @@
-streamlit
+ultralytics
+pandas
 opencv-python-headless
 numpy
-ultralytics
-sort
+scipy
 easyocr
+filterpy
 Pillow
+streamlit
