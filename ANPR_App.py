@@ -8,10 +8,11 @@ from sort.sort import Sort
 from helper_util import assign_car, read_license_plate, write_csv
 import easyocr
 from PIL import Image
+import os
 
 # Load models
 vehicle_model = YOLO('yolov8n.pt')  # YOLOv8 for vehicle detection
-license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')  # License plate detection, If you face issues try out this model: Plate_detector_Model/plate_dedector.pt
+license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')  # License plate detection
 mot_tracker = Sort()  # SORT tracker for vehicle tracking
 ocr_reader = easyocr.Reader(['en'])  # EasyOCR for license plate recognition
 
@@ -109,7 +110,12 @@ if uploaded_file is not None:
                 frames_annotated.append(processed_frame_rgb)
 
             cap.release()
-            shutil.rmtree(temp_file_path)  # Clean up temporary file
+
+            # Clean up temporary file safely
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                st.error(f"Failed to delete the temporary file: {e}")
 
             write_csv(results, 'Results_video.csv')
 
@@ -125,7 +131,7 @@ if uploaded_file is not None:
 
             # Display original and annotated videos
             st.write("Original Video:")
-            st.video(uploaded_file)
+            st.video(temp_file_path)
             st.write("Annotated Video:")
             st.video(annotated_video_path)
 
