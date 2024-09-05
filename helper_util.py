@@ -191,6 +191,35 @@ def read_license_plate(license_plate_crop):
     return None, None
 
 
+# def assign_car(license_plate, vehicle_track_ids):
+#     """
+#     Retrieve the vehicle coordinates and ID based on the license plate coordinates.
+
+#     Args:
+#         license_plate (tuple): Tuple containing the coordinates of the license plate (x1, y1, x2, y2, score, class_id).
+#         vehicle_track_ids (list): List of vehicle track IDs and their corresponding coordinates.
+
+#     Returns:
+#         tuple: Tuple containing the vehicle coordinates (x1, y1, x2, y2) and ID.
+#     """
+#     x1_lp, y1_lp, x2_lp, y2_lp, score_lp, class_id_lp = license_plate
+
+#     foundIt = False
+#     for j in range(len(vehicle_track_ids)):
+#         x1_v, y1_v, x2_v, y2_v, score_v, class_id_v = vehicle_track_ids[j]
+
+#         if x1_lp > x1_v and y1_lp > y1_v and x2_lp < x2_v and y2_lp < y2_v:
+#             car_indx = j
+#             foundIt = True  # If the car's license plate was found then break and assign it.
+#             break
+
+#     if foundIt:
+#         # Return the vehicle's bounding box and ID
+#         return vehicle_track_ids[car_indx]
+#     # Return None if no matching vehicle is found
+#     return -1, -1, -1, -1, -1
+
+
 def assign_car(license_plate, vehicle_track_ids):
     """
     Retrieve the vehicle coordinates and ID based on the license plate coordinates.
@@ -205,16 +234,24 @@ def assign_car(license_plate, vehicle_track_ids):
     x1_lp, y1_lp, x2_lp, y2_lp, score_lp, class_id_lp = license_plate
 
     foundIt = False
-    for j in range(len(vehicle_track_ids)):
-        x1_v, y1_v, x2_v, y2_v, score_v, class_id_v = vehicle_track_ids[j]
+    car_indx = -1
 
+    for j in range(len(vehicle_track_ids)):
+        try:
+            x1_v, y1_v, x2_v, y2_v, score_v, class_id_v = vehicle_track_ids[j]
+        except ValueError as e:
+            print(f"Error unpacking vehicle_track_ids[{j}]: {vehicle_track_ids[j]}")
+            continue  # Skip this vehicle if the unpacking fails
+
+        # Check if license plate is inside the vehicle bounding box
         if x1_lp > x1_v and y1_lp > y1_v and x2_lp < x2_v and y2_lp < y2_v:
             car_indx = j
-            foundIt = True  # If the car's license plate was found then break and assign it.
+            foundIt = True  # If the car's license plate was found, break and assign it
             break
 
     if foundIt:
         # Return the vehicle's bounding box and ID
         return vehicle_track_ids[car_indx]
+
     # Return None if no matching vehicle is found
     return -1, -1, -1, -1, -1
