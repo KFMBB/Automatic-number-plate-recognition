@@ -2,19 +2,16 @@ from ultralytics import YOLO
 import cv2
 # The steps of the project:
 # 1- We'll use YOLO for license plate detection (object detection).
-# 2- We'll use SORT model to keep tracking our object on the road (object tracking).
+# 2- We'll use Bytetracker model to keep tracking our object on the road (object tracking).
 # 3- Lastly using easy OCR we'll read the license plate contents.
-import helper_util
-from sort.sort import *
-from helper_util import assign_car, read_license_plate, write_csv
+import Helper_util
+from Helper_util import assign_car, read_license_plate, write_csv
 
 results = {}  # We'll save our results for processing later.
 
-mot_tracker = Sort()  # For future work we can try out bytetracker and good for us it's already installed on YOLO.
-
 # load models
-# We're using two pretrained models:
-# 1- The first model will focus on detecting cars while the other will focus on detgt ecting license plates:
+# We're using two pre-trained models:
+# 1- The first model will focus on detecting cars while the other will focus on detecting license plates:
 model = YOLO('yolov8n.pt')  # Load the nano version of the yolo model.
 # 2- The second model will be used to detect the license plates.
 # license_plate_detector = YOLO('Plate_detector_Model/plate_dedector.pt')
@@ -36,16 +33,13 @@ while isReadingFrames:
     if isReadingFrames:
         results[frame_c] = {}
         # Now apply each model to the current frame:
-        # vehicle detection and tracking:
+        # Vehicle detection and tracking:
         detections = model.track(frame, persist = True, tracker="bytetrack.yaml")[0]  # the [0] will unpack the models bbox, confidence and class_id as a tuple.
         vehicles_detected = []  # Store each vehicle detected in the list.
         for detection in detections.boxes.data.tolist():
             x1, y1, x2, y2, track_id, score, class_id = detection
             if int(class_id) in vehicles:  # If the object detected is a vehicle:
                 vehicles_detected.append([x1, y1, x2, y2, track_id, score])  # Add bbox, confidence to the list of detected vehicles.
-
-        # track vehicles using SORT:
-        # track_ids = mot_tracker.update(np.asarray(vehicles_detected))
 
         # detect the license plates:
         license_plates = license_plate_detector(frame)[0]  # same as the vehicles detections.
@@ -59,10 +53,10 @@ while isReadingFrames:
 
                 # crop license plate:
                 license_plate_crop = frame[int(y1):int(y2), int(x1): int(x2), :]
-                # we essentially took the bbox cords and then processed the whole frame, we took slices from y1 till
+                # We essentially took the bbox cords and then processed the whole frame, we took slices from y1 till
                 # y2 and then x1 till x2 and lastly the rgb or bgr.
 
-                # process license plate number: why? well to make it easier for the ocr model to process, we'll grey
+                # Process license plate number: why? well to make it easier for the ocr model to process, we'll grey
                 # scale the license plate as colors don't really help the model with reading a plate.
                 license_plate_crop_gray = cv2.cvtColor(license_plate_crop, cv2.COLOR_BGR2GRAY)
                 # apply threshold: If the pixel value is less than threshold it becomes white (255),
