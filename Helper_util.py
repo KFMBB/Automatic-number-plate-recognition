@@ -2,8 +2,7 @@ import string
 import easyocr
 import cv2
 # OCR reader:
-# The following easyocr instance reads arabic and english language.
-# reader = easyocr.Reader(['en'])
+reader = easyocr.Reader(['en'])
 
 # Mapping dictionaries for character conversion
 # As we know the format of the targeted license plate, we'll essentially help the model with detecting accurately.
