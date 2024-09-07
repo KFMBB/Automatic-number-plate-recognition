@@ -6,4 +6,3 @@ scipy
 easyocr
 filterpy
 streamlit
-tempfile
