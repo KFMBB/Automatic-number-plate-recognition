@@ -1,152 +1,128 @@
 import streamlit as st
 import cv2
-import numpy as np
-import tempfile
-import os  # Import os module
 from ultralytics import YOLO
-from sort.sort import Sort
-from helper_util import assign_car, read_license_plate, write_csv
-import easyocr
-from PIL import Image
+import pandas as pd
+import numpy as np
+import csv
+from scipy.interpolate import interp1d
+import Helper_util
+from Helper_util import assign_car, read_license_plate, write_csv
+import ast
 
-# Load models
-vehicle_model = YOLO('yolov8n.pt')  # YOLOv8 for vehicle detection
-license_plate_detector = YOLO('Plate_detector_Model/license_plate_detector.pt')  # License plate detection
-mot_tracker = Sort()  # SORT tracker for vehicle tracking
-ocr_reader = easyocr.Reader(['en'])  # EasyOCR for license plate recognition
+# Function to draw borders around detected objects
+def draw_border(img, top_left, bottom_right, color=(0, 255, 0), thickness=10, line_length_x=200, line_length_y=200):
+    x1, y1 = top_left
+    x2, y2 = bottom_right
+    cv2.line(img, (x1, y1), (x1, y1 + line_length_y), color, thickness)  # top-left
+    cv2.line(img, (x1, y1), (x1 + line_length_x, y1), color, thickness)
+    cv2.line(img, (x1, y2), (x1, y2 - line_length_y), color, thickness)  # bottom-left
+    cv2.line(img, (x1, y2), (x1 + line_length_x, y2), color, thickness)
+    cv2.line(img, (x2, y1), (x2 - line_length_x, y1), color, thickness)  # top-right
+    cv2.line(img, (x2, y1), (x2, y1 + line_length_y), color, thickness)
+    cv2.line(img, (x2, y2), (x2, y2 - line_length_y), color, thickness)  # bottom-right
+    cv2.line(img, (x2, y2), (x2 - line_length_x, y2), color, thickness)
+    return img
 
-# Function to process frames (for both image and video)
-def process_frame(frame, frame_c):
+# Helper function to interpolate bounding boxes
+def interpolate_bounding_boxes(data):
+    frame_numbers = np.array([int(row['frame_c']) for row in data])
+    car_ids = np.array([int(float(row['car_id'])) for row in data])
+    car_bboxes = np.array([list(map(float, row['car_bbox'][1:-1].split())) for row in data])
+    license_plate_bboxes = np.array([list(map(float, row['license_plate_bbox'][1:-1].split())) for row in data])
+
+    interpolated_data = []
+    unique_car_ids = np.unique(car_ids)
+    for car_id in unique_car_ids:
+        car_mask = car_ids == car_id
+        car_frame_numbers = frame_numbers[car_mask]
+        car_bboxes_interpolated = []
+        license_plate_bboxes_interpolated = []
+
+        for i in range(len(car_bboxes[car_mask])):
+            frame_number = car_frame_numbers[i]
+            car_bbox = car_bboxes[car_mask][i]
+            license_plate_bbox = license_plate_bboxes[car_mask][i]
+
+            car_bboxes_interpolated.append(car_bbox)
+            license_plate_bboxes_interpolated.append(license_plate_bbox)
+
+        for i in range(len(car_bboxes_interpolated)):
+            frame_number = car_frame_numbers[i]
+            row = {}
+            row['frame_c'] = str(frame_number)
+            row['car_id'] = str(car_id)
+            row['car_bbox'] = ' '.join(map(str, car_bboxes_interpolated[i]))
+            row['license_plate_bbox'] = ' '.join(map(str, license_plate_bboxes_interpolated[i]))
+
+            interpolated_data.append(row)
+
+    return interpolated_data
+
+# Main app
+st.title('License Plate Detection and OCR')
+
+st.write("This application detects vehicles, tracks them, and reads license plates.")
+
+uploaded_video = st.file_uploader("Upload Video", type=["mp4", "avi", "mov"])
+
+if uploaded_video is not None:
+    # Load models
+    model = YOLO('models/yolov8n.pt')  # Vehicle detection
+    license_plate_detector = YOLO('models/best_license_plate_detector.pt')  # License plate detection
+
+    cap = cv2.VideoCapture(uploaded_video)
+
+    frame_c = -1
+    threshold = 64
     results = {}
-    results[frame_c] = {}
 
-    # Vehicle detection
-    detections = vehicle_model(frame)[0]
-    vehicles_detected = []
-    for detection in detections.boxes.data.tolist():
-        x1, y1, x2, y2, score, class_id = detection
-        if int(class_id) in [2, 3, 5, 7]:  # Vehicle classes
-            vehicles_detected.append([x1, y1, x2, y2, score])
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)  # Annotate vehicle
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    # Track vehicles
-    if vehicles_detected:
-        track_ids = mot_tracker.update(np.asarray(vehicles_detected))
-    else:
-        track_ids = np.array([])
+        frame_c += 1
+        results[frame_c] = {}
 
-    # License plate detection
-    license_plates = license_plate_detector(frame)[0]
-    for license_plate in license_plates.boxes.data.tolist():
-        x1_lp, y1_lp, x2_lp, y2_lp, score_lp, class_id_lp = license_plate
+        # Detect vehicles
+        detections = model.track(frame, persist=True, tracker="bytetrack.yaml")[0]
+        vehicles_detected = [d for d in detections.boxes.data.tolist() if int(d[5]) in [2, 3, 5, 7]]
 
-        # Assign license plate to the vehicle
-        x1_v, y1_v, x2_v, y2_v, car_id = assign_car(license_plate, track_ids)
+        # Detect license plates
+        license_plates = license_plate_detector(frame)[0]
+        for lp in license_plates.boxes.data.tolist():
+            x1, y1, x2, y2, score, class_id = lp
+            x1_v, y1_v, x2_v, y2_v, car_id = assign_car(lp, vehicles_detected)
 
-        if car_id != -1:
-            # Annotate license plate
-            cv2.rectangle(frame, (int(x1_lp), int(y1_lp)), (int(x2_lp), int(y2_lp)), (0, 255, 0), 2)
+            if car_id != -1:
+                license_plate_crop = frame[int(y1):int(y2), int(x1):int(x2), :]
+                license_plate_crop_gray = cv2.cvtColor(license_plate_crop, cv2.COLOR_BGR2GRAY)
+                _, license_plate_crop_thresh = cv2.threshold(license_plate_crop_gray, threshold, 255, cv2.THRESH_BINARY_INV)
+                license_plate_text, license_plate_text_score = read_license_plate(license_plate_crop_thresh)
 
-            # Process license plate for OCR
-            license_plate_crop = frame[int(y1_lp):int(y2_lp), int(x1_lp):int(x2_lp)]
-            license_plate_crop_gray = cv2.cvtColor(license_plate_crop, cv2.COLOR_BGR2GRAY)
-            _, license_plate_crop_thresh = cv2.threshold(license_plate_crop_gray, 64, 255, cv2.THRESH_BINARY_INV)
+                if license_plate_text:
+                    results[frame_c][car_id] = {'car': {'bbox': [x1_v, y1_v, x2_v, y2_v]},
+                                                'license_plate': {'bbox': [x1, y1, x2, y2],
+                                                                  'text': license_plate_text,
+                                                                  'bbox_score': score,
+                                                                  'text_score': license_plate_text_score}}
 
-            # OCR
-            license_plate_text, license_plate_text_score = read_license_plate(license_plate_crop_thresh)
+    # Writing to CSV
+    write_csv(results, 'output/results.csv')
+    st.success("Detection complete. Results saved.")
 
-            # Annotate the frame with OCR result
-            cv2.putText(frame, license_plate_text, (int(x1_lp), int(y1_lp) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+    # Interpolation and video annotation
+    with open('output/results.csv', 'r') as file:
+        reader = csv.DictReader(file)
+        data = list(reader)
 
-            # Save results
-            if license_plate_text:
-                results[frame_c][car_id] = {
-                    'car': {'bbox': [x1_v, y1_v, x2_v, y2_v]},
-                    'license_plate': {
-                        'bbox': [x1_lp, y1_lp, x2_lp, y2_lp],
-                        'text': license_plate_text,
-                        'bbox_score': score_lp,
-                        'text_score': license_plate_text_score
-                    }
-                }
-    return frame, results
+    interpolated_data = interpolate_bounding_boxes(data)
+    pd.DataFrame(interpolated_data).to_csv('output/processed_results.csv', index=False)
 
-# Streamlit App
-st.title("Automatic Number Plate Recognition (ANPR) System")
-st.write("Upload an image or video for license plate detection and recognition.")
+    # Annotating video
+    license_plate = {}
+    for car_id in np.unique([d['car_id'] for d in interpolated_data]):
+        frame_c = int(max([int(d['frame_c']) for d in interpolated_data if d['car_id'] == car_id]))
+        st.write(f"Car ID: {car_id}, Frame: {frame_c}")
 
-uploaded_file = st.file_uploader("Choose an image or video", type=["jpg", "png", "mp4"])
-
-if uploaded_file is not None:
-    uploaded_file.seek(0)  # Reset file pointer to the beginning
-
-    if uploaded_file.type == "video/mp4":
-        # Save uploaded video to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_file:
-            temp_file.write(uploaded_file.read())
-            temp_file_path = temp_file.name
-
-        # Video processing
-        st.write("Processing video, please wait...")
-        with st.spinner('Processing video...'):
-            cap = cv2.VideoCapture(temp_file_path)
-            frame_c = 0
-            results = {}
-            frames_annotated = []
-
-            while True:
-                frame_c += 1
-                isReadingFrames, frame = cap.read()
-
-                if not isReadingFrames:
-                    break
-
-                # Process frame
-                processed_frame, frame_results = process_frame(frame, frame_c)
-                results.update(frame_results)
-
-                # Append frames for final display
-                processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                frames_annotated.append(processed_frame_rgb)
-
-            cap.release()
-
-            # Clean up temporary file safely
-            try:
-                os.remove(temp_file_path)
-            except Exception as e:
-                st.error(f"Failed to delete the temporary file: {e}")
-
-            write_csv(results, 'Results_video.csv')
-
-            # Save annotated video
-            annotated_video_path = 'annotated_video.mp4'
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(
-                annotated_video_path, fourcc, 20.0,
-                (frames_annotated[0].shape[1], frames_annotated[0].shape[0])
-            )
-
-            for frame in frames_annotated:
-                out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-
-            out.release()
-
-            # Display annotated video
-            st.write("Annotated Video:")
-            st.video(annotated_video_path)
-
-    else:
-        # Image processing
-        st.write("Processing image, please wait...")
-        with st.spinner('Processing image...'):
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            frame_c = 0
-            processed_frame, results = process_frame(image, frame_c)
-
-            # Display the processed image
-            processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-            st.image(processed_frame_rgb, caption='Processed Image')
-
-            write_csv(results, 'Results_image.csv')
+    st.video("output/test_annot.mp4")
