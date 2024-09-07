@@ -24,7 +24,7 @@ def draw_border(img, top_left, bottom_right, color=(0, 255, 0), thickness=10, li
     return img
 
 
-results = pd.read_csv('input/processed_results.csv')
+results = pd.read_csv('output/processed_results.csv')
 
 # load video
 video_path = 'input/test.mp4'
