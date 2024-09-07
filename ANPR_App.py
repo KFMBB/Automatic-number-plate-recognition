@@ -5,7 +5,9 @@ import pandas as pd
 import ast
 from ultralytics import YOLO
 from io import BytesIO
-from Helper_util import *
+import tempfile
+import os
+
 def draw_border(img, top_left, bottom_right, color=(0, 255, 0), thickness=10, line_length_x=200, line_length_y=200):
     x1, y1 = top_left
     x2, y2 = bottom_right
@@ -21,6 +23,32 @@ def draw_border(img, top_left, bottom_right, color=(0, 255, 0), thickness=10, li
     
     return img
 
+def assign_car(lp, vehicles_detected):
+    for vehicle in vehicles_detected:
+        if lp[0] > vehicle[0] and lp[1] > vehicle[1] and lp[2] < vehicle[2] and lp[3] < vehicle[3]:
+            return vehicle
+    return -1
+
+def read_license_plate(crop):
+    # Placeholder for actual OCR code
+    # Use EasyOCR or any other OCR tool here
+    return "ABC123", 0.9
+
+def write_csv(results, file_path):
+    # Write results to CSV
+    with open(file_path, 'w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=['frame_c', 'car_id', 'car_bbox', 'license_plate_bbox', 'license_plate_text'])
+        writer.writeheader()
+        for frame, data in results.items():
+            for car_id, details in data.items():
+                writer.writerow({
+                    'frame_c': frame,
+                    'car_id': car_id,
+                    'car_bbox': details['car']['bbox'],
+                    'license_plate_bbox': details['license_plate']['bbox'],
+                    'license_plate_text': details['license_plate']['text']
+                })
+
 # Streamlit App
 st.title('License Plate Detection and OCR')
 st.write("This application detects vehicles, tracks them, and reads license plates.")
@@ -28,17 +56,17 @@ st.write("This application detects vehicles, tracks them, and reads license plat
 uploaded_video = st.file_uploader("Upload Video", type=["mp4", "avi", "mov"])
 
 if uploaded_video is not None:
-    # Convert uploaded file to a format that OpenCV can handle
-    video_bytes = uploaded_video.read()
-    video_np_array = np.frombuffer(video_bytes, np.uint8)
-    video_stream = BytesIO(video_np_array)
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+        temp_file.write(uploaded_video.read())
+        temp_file_path = temp_file.name
 
     # Load models
     model = YOLO('models/yolov8n.pt')  # Vehicle detection
     license_plate_detector = YOLO('models/best_license_plate_detector.pt')  # License plate detection
 
     # Open video file
-    cap = cv2.VideoCapture(video_stream)
+    cap = cv2.VideoCapture(temp_file_path)
 
     frame_c = -1
     threshold = 64
@@ -83,7 +111,7 @@ if uploaded_video is not None:
     results = pd.read_csv('output/results.csv')
 
     # load video
-    cap = cv2.VideoCapture(video_stream)
+    cap = cv2.VideoCapture(temp_file_path)
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Specify the codec
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -136,11 +164,8 @@ if uploaded_video is not None:
                 H, W, _ = license_crop.shape
 
                 try:
-                    frame[int(car_y1) - H - 100:int(car_y1) - 100,
-                          int((car_x2 + car_x1 - W) / 2):int((car_x2 + car_x1 + W) / 2), :] = license_crop
-
-                    frame[int(car_y1) - H - 400:int(car_y1) - H - 100,
-                          int((car_x2 + car_x1 - W) / 2):int((car_x2 + car_x1 + W) / 2), :] = (255, 255, 255)
+                    frame[int(car_y1) - H - 100:int(car_y1) - 100, int(car_x1):int(car_x1) + W] = license_crop
+                    frame[int(car_y1) - H - 100:int(car_y1) - 100, int(car_x1):int(car_x1) + W, :] = (255, 255, 255)
 
                     (text_width, text_height), _ = cv2.getTextSize(
                         license_plate[df_.iloc[row_indx]['car_id']]['license_plate_number'],
@@ -162,10 +187,8 @@ if uploaded_video is not None:
             out.write(frame)
             frame = cv2.resize(frame, (1280, 720))
 
-            # cv2.imshow('frame', frame)
-            # cv2.waitKey(0)
-
     out.release()
     cap.release()
+    os.remove(temp_file_path)
 
     st.video('output/test_annot.mp4')
